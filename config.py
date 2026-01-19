@@ -22,7 +22,7 @@ FAILSAFE = True
 # === КООРДИНАТЫ (настроить под свой экран!) ===
 COORDINATES = {
     "claude_code": {
-        "ask_field": (150, 153),
+        "ask_field": (30, 214),
         "reply_field": (600, 700),
     }
 }
