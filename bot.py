@@ -5,6 +5,7 @@ CFA Trainer Automation Bot
 
 import asyncio
 import logging
+asyncio.set_event_loop(asyncio.new_event_loop())
 from modules.telegram_bot import create_bot
 
 # Настройка логирования

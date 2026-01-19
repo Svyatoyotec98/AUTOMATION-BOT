@@ -12,7 +12,7 @@ def create_bot():
     if not TELEGRAM_BOT_TOKEN:
         return None
     
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).job_queue(None).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).job_queue(None).concurrent_updates(False).build()
     
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
