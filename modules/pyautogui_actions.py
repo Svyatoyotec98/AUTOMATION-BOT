@@ -1,6 +1,7 @@
 import pyautogui
 import pyperclip
 import time
+import keyboard
 from config import COORDINATES, PYAUTOGUI_PAUSE, FAILSAFE
 
 # Безопасность: остановка при перемещении мыши в угол
@@ -9,8 +10,7 @@ pyautogui.PAUSE = PYAUTOGUI_PAUSE
 
 def click_ask_claude_field():
     """Кликнуть в поле 'Ask Claude to write code...'"""
-    coords = COORDINATES["claude_code"]["ask_field"]
-    pyautogui.click(coords[0], coords[1])
+    pyautogui.click(30, 214)
     time.sleep(0.5)
 
 def click_reply_field():
@@ -22,12 +22,12 @@ def click_reply_field():
 def type_text(text):
     """Ввести текст (через буфер обмена для кириллицы)"""
     pyperclip.copy(text)
-    pyautogui.hotkey('ctrl', 'v')
+    keyboard.press_and_release('ctrl+v')
     time.sleep(0.3)
 
 def press_enter():
     """Нажать Enter"""
-    pyautogui.press('enter')
+    keyboard.press_and_release('enter')
 
 def send_prompt_to_claude(prompt):
     """Отправить промпт в Claude Code"""
