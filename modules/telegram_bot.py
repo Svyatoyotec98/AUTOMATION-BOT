@@ -3,6 +3,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
 from projects.cfa.config import BOOKS
 from projects.cfa.prompts import generate_prompt
+from modules.pyautogui_actions import send_prompt_to_claude
 
 # Состояние пользователя
 user_state = {}
@@ -260,8 +261,7 @@ async def execute_task(query, user_id):
     prompt = generate_prompt(content_type, book_name, module_num)
     
     # TODO: Отправить промпт в Claude Code через PyAutoGUI
-    # from modules.pyautogui_actions import send_prompt_to_claude
-    # send_prompt_to_claude(prompt)
+    send_prompt_to_claude(prompt)
     
     type_name = "Тесты" if content_type == "tests" else "Глоссарий"
     
