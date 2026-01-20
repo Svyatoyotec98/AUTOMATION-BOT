@@ -126,6 +126,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "refresh_status":
         await refresh_and_show_status(query)
 
+    # === CLEAR ALL TASKS ===
+    elif data == "clear_all_tasks":
+        await clear_all_tasks(query)
+
 
 async def show_main_menu(query):
     """Главное меню"""
@@ -522,11 +526,19 @@ async def show_status(query):
     # Кнопки
     keyboard = [
         [InlineKeyboardButton("🔄 Обновить", callback_data="refresh_status")],
+        [InlineKeyboardButton("🗑 Очистить всё", callback_data="clear_all_tasks")],
         [InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(message, reply_markup=reply_markup, parse_mode="Markdown")
+
+
+async def clear_all_tasks(query):
+    """Очистить все задачи"""
+    task_storage.clear_all_tasks()
+    await query.answer("🗑 Все задачи очищены!", show_alert=True)
+    await show_status(query)
 
 
 async def toggle_pause(query):

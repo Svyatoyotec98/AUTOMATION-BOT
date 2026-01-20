@@ -335,3 +335,9 @@ def is_module_ready(book, module):
     if len(tasks) < 2:
         return False
     return all(t.get("status") == "ready_to_merge" for t in tasks)
+
+def clear_all_tasks():
+    """Очистить все активные задачи"""
+    data = {"active_tasks": [], "completed_tasks": []}
+    _save_tasks(data)
+    print("[TaskStorage] All tasks cleared")
