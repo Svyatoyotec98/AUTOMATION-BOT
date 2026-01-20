@@ -122,6 +122,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id_short = data.replace("merge_", "")
         await perform_merge(query, task_id_short)
 
+    # === REFRESH STATUS ===
+    elif data == "refresh_status":
+        await refresh_and_show_status(query)
+
 
 async def show_main_menu(query):
     """Главное меню"""
@@ -359,14 +363,84 @@ async def execute_module_task(query, user_id):
     )
 
 
-async def show_status(query):
-    """Показать статус"""
-    # Получаем активные задачи
+async def refresh_and_show_status(query):
+    """Обновить статус — синхронизировать с GitHub"""
+    from modules import github_monitor
+
+    try:
+        github_branches = github_monitor.get_claude_branches()
+    except Exception as e:
+        print(f"[Refresh] GitHub error: {e}")
+        github_branches = []
+
     active_tasks = task_storage.get_active_tasks()
+
+    removed_count = 0
+    completed_count = 0
+    linked_count = 0
+
+    for task in active_tasks[:]:
+        branch = task.get("branch")
+
+        # Если есть ветка, но её нет в GitHub — удаляем задачу
+        if branch and github_branches and branch not in github_branches:
+            task_storage.remove_task(task["task_id"])
+            removed_count += 1
+            continue
+
+        # Если ветка есть — проверяем завершение
+        if branch and task.get("status") != "ready_to_merge":
+            try:
+                if github_monitor.check_branch_completed(branch):
+                    task_storage.mark_task_completed(task["task_id"])
+                    completed_count += 1
+            except Exception as e:
+                print(f"[Refresh] Error checking {branch}: {e}")
+
+    # Привязка веток к задачам без веток
+    for task in task_storage.get_active_tasks():
+        if not task.get("branch"):
+            # Ищем ветку по паттерну
+            book_lower = task["book"].lower().replace(" ", "-")
+            task_type = task["type"]
+            module = task["module"]
+
+            for branch in github_branches:
+                branch_lower = branch.lower()
+                # Проверяем совпадение книги и модуля
+                if book_lower[:4] in branch_lower and str(module) in branch_lower:
+                    # Проверяем тип задачи
+                    if (task_type == "glossary" and "glossary" in branch_lower) or \
+                       (task_type == "tests" and ("test" in branch_lower or "qbank" in branch_lower)):
+                        task_storage.update_task_branch(task["task_id"], branch)
+                        linked_count += 1
+                        print(f"[Refresh] Linked {task['task_id'][:8]} to {branch}")
+                        break
+
+    # Формируем ответ
+    messages = []
+    if removed_count > 0:
+        messages.append(f"🗑 Удалено: {removed_count}")
+    if completed_count > 0:
+        messages.append(f"✅ Завершено: {completed_count}")
+    if linked_count > 0:
+        messages.append(f"🔗 Привязано: {linked_count}")
+    if not messages:
+        messages.append("✅ Всё актуально")
+
+    await query.answer(" | ".join(messages), show_alert=True)
+    await show_status(query)
+
+
+async def show_status(query):
+    """Показать статус с индикаторами активности"""
+    from datetime import datetime
+
+    active_tasks = task_storage.get_active_tasks()
+    ready_to_merge = task_storage.get_ready_to_merge_tasks()
     completed_today = task_storage.get_completed_tasks_today()
 
-    # Формируем сообщение
-    message = "📈 *Статус системы*\n\n"
+    message = "📊 *Статус системы*\n\n"
     message += "🟢 Бот работает\n"
 
     if active_tasks:
@@ -376,49 +450,73 @@ async def show_status(query):
 
     message += "━━━━━━━━━━━━━━━\n"
 
-    # Активные задачи
+    # Активные задачи с индикаторами
     if active_tasks:
         message += "📋 *Активные задачи:*\n\n"
 
         for task in active_tasks:
-            task_type = task["type"]
-            type_emoji = "📝" if task_type == "tests" else "📖"
-            type_name = "Тесты" if task_type == "tests" else "Глоссарий"
+            started = datetime.strptime(task["started_at"], "%Y-%m-%d %H:%M:%S")
+            started_time = task["started_at"].split()[1][:5]
+            minutes_passed = (datetime.now() - started).total_seconds() / 60
 
-            message += f"{type_emoji} *{type_name}* {task['book']} Module {task['module']}\n"
+            # Определяем статус
+            if task.get("status") == "ready_to_merge":
+                status_icon = "✅"
+                status_text = "Готов к merge"
+            elif len(task.get("checkpoints", [])) > 0:
+                status_icon = "🟢"
+                status_text = "Работает"
+            elif minutes_passed > 15:
+                status_icon = "⚠️"
+                status_text = f"Нет активности {int(minutes_passed)} мин"
+            else:
+                status_icon = "🔵"
+                status_text = "Запущена"
 
-            # Время начала
-            started_time = task["started_at"].split()[1][:5]  # HH:MM
-            message += f"⏱️ Начато: {started_time}\n"
+            type_emoji = "📖" if task["type"] == "glossary" else "📝"
+            type_name = "Глоссарий" if task["type"] == "glossary" else "Тесты"
 
-            # Checkpoint'ы
-            if task["checkpoints"]:
-                for cp in task["checkpoints"]:
-                    cp_time = cp["time"].split()[1][:5]  # HH:MM
-                    message += f"🔄 {cp['name']}: {cp_time}\n"
+            message += f"{status_icon} {type_emoji} *{type_name}* {task['book']} Module {task['module']}\n"
+            message += f"⏱ Начато: {started_time} | {status_text}\n"
 
-            # Ветка (если есть)
-            if task["branch"]:
-                branch_short = task["branch"].replace("claude/", "")[:25]
-                message += f"🌿 Ветка: {branch_short}...\n"
+            if task.get("branch"):
+                branch_short = task["branch"].replace("claude/", "")[:20]
+                message += f"🌿 `{branch_short}...`\n"
 
             message += "\n"
 
         message += "━━━━━━━━━━━━━━━\n"
-
     else:
         message += "📋 *Активные задачи:* нет\n"
         message += "━━━━━━━━━━━━━━━\n"
 
-    # Готовые к мёржу (задачи со статусом completed в active_tasks)
-    ready_to_merge = [t for t in active_tasks if t["status"] == "completed"]
-    message += f"⏳ *Готовы к мёржу:* {len(ready_to_merge)}\n"
-    message += "━━━━━━━━━━━━━━━\n"
+    # Готовы к мержу
+    message += f"✅ *Готовы к мёржу:* {len(ready_to_merge)}\n"
 
-    # Завершено сегодня
+    # Проверяем готовые модули
+    modules_ready = {}
+    for task in ready_to_merge:
+        key = f"{task['book']}_{task['module']}"
+        if key not in modules_ready:
+            modules_ready[key] = []
+        modules_ready[key].append(task["type"])
+
+    for key, types in modules_ready.items():
+        if len(types) == 2:  # glossary + tests
+            book, module = key.rsplit("_", 1)
+            message += f"🎉 _{book} Module {module} — полностью готов!_\n"
+
+    message += "━━━━━━━━━━━━━━━\n"
     message += f"📁 *Завершено сегодня:* {len(completed_today)}"
 
-    await query.edit_message_text(message, parse_mode="Markdown")
+    # Кнопки
+    keyboard = [
+        [InlineKeyboardButton("🔄 Обновить", callback_data="refresh_status")],
+        [InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode="Markdown")
 
 
 async def toggle_pause(query):
