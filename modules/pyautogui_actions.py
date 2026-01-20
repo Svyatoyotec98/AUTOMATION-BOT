@@ -54,8 +54,7 @@ def refresh_page():
 
 def click_code_button():
     """Кликнуть по кнопке 'Code' в сайдбаре"""
-    # TODO: определить реальные координаты кнопки Code
-    pyautogui.click(100, 300)
+    pyautogui.click(38, 337)
     time.sleep(0.5)
 
 def launch_module_tasks(glossary_prompt, tests_prompt):
