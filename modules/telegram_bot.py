@@ -365,10 +365,12 @@ async def execute_module_task(query, user_id):
 
 async def refresh_and_show_status(query):
     """Обновить статус — синхронизировать с GitHub"""
-    from modules import github_monitor
+    from modules.github_monitor import get_claude_branches, check_branch_completed
+    from datetime import datetime
 
     try:
-        github_branches = github_monitor.get_claude_branches()
+        github_branches = get_claude_branches()
+        print(f"[Refresh] Found {len(github_branches)} GitHub branches")
     except Exception as e:
         print(f"[Refresh] GitHub error: {e}")
         github_branches = []
@@ -382,49 +384,57 @@ async def refresh_and_show_status(query):
     for task in active_tasks[:]:
         branch = task.get("branch")
 
-        # Если есть ветка, но её нет в GitHub — удаляем задачу
+        # === НОВОЕ: Привязка веток к задачам без ветки ===
+        if not branch and github_branches:
+            # Ищем подходящую ветку по паттерну
+            book_lower = task["book"].lower()
+            task_type = task["type"]  # "glossary" или "tests"
+            module = str(task["module"])
+
+            for gb in github_branches:
+                gb_lower = gb.lower()
+
+                # Проверяем что ветка соответствует задаче
+                book_match = any(word in gb_lower for word in book_lower.split()[:1])  # первое слово книги
+                module_match = f"module-{module}" in gb_lower or f"module{module}" in gb_lower or f"-{module}-" in gb_lower or gb_lower.endswith(f"-{module}")
+
+                if task_type == "glossary":
+                    type_match = "glossary" in gb_lower
+                else:
+                    type_match = "test" in gb_lower or "qbank" in gb_lower
+
+                if book_match and module_match and type_match:
+                    task_storage.update_task_branch(task["task_id"], gb)
+                    branch = gb
+                    linked_count += 1
+                    print(f"[Refresh] Linked task {task['task_id'][:8]} to branch {gb}")
+                    break
+
+        # Проверка: если ветка есть, но её нет в GitHub — удаляем задачу
         if branch and github_branches and branch not in github_branches:
             task_storage.remove_task(task["task_id"])
             removed_count += 1
+            print(f"[Refresh] Removed task {task['task_id'][:8]} (branch {branch} deleted)")
             continue
 
-        # Если ветка есть — проверяем завершение
+        # Проверка завершения
         if branch and task.get("status") != "ready_to_merge":
             try:
-                if github_monitor.check_branch_completed(branch):
+                if check_branch_completed(branch):
                     task_storage.mark_task_completed(task["task_id"])
                     completed_count += 1
+                    print(f"[Refresh] Task {task['task_id'][:8]} marked as completed")
             except Exception as e:
                 print(f"[Refresh] Error checking {branch}: {e}")
 
-    # Привязка веток к задачам без веток
-    for task in task_storage.get_active_tasks():
-        if not task.get("branch"):
-            # Ищем ветку по паттерну
-            book_lower = task["book"].lower().replace(" ", "-")
-            task_type = task["type"]
-            module = task["module"]
-
-            for branch in github_branches:
-                branch_lower = branch.lower()
-                # Проверяем совпадение книги и модуля
-                if book_lower[:4] in branch_lower and str(module) in branch_lower:
-                    # Проверяем тип задачи
-                    if (task_type == "glossary" and "glossary" in branch_lower) or \
-                       (task_type == "tests" and ("test" in branch_lower or "qbank" in branch_lower)):
-                        task_storage.update_task_branch(task["task_id"], branch)
-                        linked_count += 1
-                        print(f"[Refresh] Linked {task['task_id'][:8]} to {branch}")
-                        break
-
     # Формируем ответ
     messages = []
-    if removed_count > 0:
-        messages.append(f"🗑 Удалено: {removed_count}")
-    if completed_count > 0:
-        messages.append(f"✅ Завершено: {completed_count}")
     if linked_count > 0:
         messages.append(f"🔗 Привязано: {linked_count}")
+    if completed_count > 0:
+        messages.append(f"✅ Завершено: {completed_count}")
+    if removed_count > 0:
+        messages.append(f"🗑 Удалено: {removed_count}")
     if not messages:
         messages.append("✅ Всё актуально")
 
