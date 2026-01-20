@@ -72,46 +72,45 @@ def launch_module_tasks(glossary_prompt, tests_prompt):
     print("[PyAutoGUI] Запуск модуля: Glossary + Tests...")
 
     # === GLOSSARY ===
-    print("[PyAutoGUI] 1/2: Запуск Glossary...")
-
-    # Клик Code
+    print("[PyAutoGUI] [1/8] Кликаю Code для Glossary...")
     click_code_button()
+
+    print("[PyAutoGUI] [2/8] Жду 5 сек загрузки...")
     time.sleep(5)
 
-    # Вставить промпт glossary
-    pyperclip.copy(glossary_prompt)
-    keyboard.press_and_release('ctrl+v')
-    time.sleep(0.5)
+    print("[PyAutoGUI] [3/8] Вставляю промпт Glossary...")
+    type_text(glossary_prompt)
 
-    # Отправить
-    keyboard.press_and_release('enter')
+    print("[PyAutoGUI] [4/8] Отправляю промпт...")
+    press_enter()
     time.sleep(1)
 
-    # Переключиться на предыдущую вкладку (Ctrl+Shift+Tab)
+    print("[PyAutoGUI] [5/8] Возвращаюсь на чат (Ctrl+Shift+Tab)...")
     keyboard.press_and_release('ctrl+shift+tab')
-    time.sleep(1)
+    time.sleep(2)  # Критично: ждём стабилизации вкладки
 
     # === TESTS ===
-    print("[PyAutoGUI] 2/2: Запуск Tests...")
+    print("[PyAutoGUI] [6/8] Пауза перед запуском Tests...")
+    time.sleep(1)
 
-    # Клик Code
+    print("[PyAutoGUI] [7/8] Кликаю Code для Tests...")
     click_code_button()
+
+    print("[PyAutoGUI] [8/8] Жду 5 сек загрузки...")
     time.sleep(5)
 
-    # Вставить промпт tests
-    pyperclip.copy(tests_prompt)
-    keyboard.press_and_release('ctrl+v')
-    time.sleep(0.5)
+    print("[PyAutoGUI] [9/8] Вставляю промпт Tests...")
+    type_text(tests_prompt)
 
-    # Отправить
-    keyboard.press_and_release('enter')
+    print("[PyAutoGUI] [10/8] Отправляю промпт...")
+    press_enter()
     time.sleep(1)
 
-    # Переключиться на предыдущую вкладку (Ctrl+Shift+Tab)
+    print("[PyAutoGUI] [11/8] Возвращаюсь на чат (Ctrl+Shift+Tab)...")
     keyboard.press_and_release('ctrl+shift+tab')
-    time.sleep(1)
+    time.sleep(2)  # Критично: ждём стабилизации вкладки
 
-    print("[PyAutoGUI] Модуль запущен! Обе задачи отправлены.")
+    print("[PyAutoGUI] ✅ Модуль запущен! Обе задачи отправлены.")
     return True
 
 def close_glossary_tab():
