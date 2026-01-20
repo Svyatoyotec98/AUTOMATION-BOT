@@ -155,7 +155,12 @@ def get_all_branch_checkpoints(branch_name):
 def check_branch_completed(branch_name):
     """
     Проверить, завершена ли задача в ветке.
-    Ищем коммит с 'complete', 'завершен', 'готово', 'finished', 'done' в сообщении.
+
+    Паттерны завершения из реальных коммитов:
+    - "complete - XX questions" (тесты)
+    - "complete - XX terms" (глоссарий)
+    - "- XX terms" (глоссарий без слова complete)
+    - "- XX questions" (тесты без слова complete)
 
     Args:
         branch_name: название ветки
@@ -166,11 +171,20 @@ def check_branch_completed(branch_name):
     try:
         commits = get_branch_commits(branch_name)
 
-        # Проверяем последние 5 коммитов
-        for commit in commits[:5]:
-            message_lower = commit["message"].lower()
-            completion_words = ["complete", "завершен", "готово", "finished", "done"]
-            if any(word in message_lower for word in completion_words):
+        # Проверяем последние 10 коммитов
+        for commit in commits[:10]:
+            message = commit["message"].lower()
+
+            # Паттерн 1: "complete" в сообщении
+            if "complete" in message:
+                return True
+
+            # Паттерн 2: "- XX terms" (глоссарий завершён)
+            if re.search(r'-\s*\d+\s*terms', message):
+                return True
+
+            # Паттерн 3: "- XX questions" (тесты завершены)
+            if re.search(r'-\s*\d+\s*questions', message):
                 return True
 
         return False
