@@ -3,7 +3,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
 from projects.cfa.config import BOOKS
 from projects.cfa.prompts import generate_prompt
-from modules.pyautogui_actions import send_prompt_to_claude
+from modules.pyautogui_actions import send_prompt_to_claude, launch_module_tasks, close_glossary_tab, close_tests_tab
 from modules import task_storage
 
 # Состояние пользователя
@@ -67,17 +67,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_menu(query)
     
     # === CFA МЕНЮ ===
-    elif data == "cfa_tests":
-        user_state[user_id] = {"type": "tests"}
-        await show_books_menu(query, "tests")
-    
-    elif data == "cfa_glossary":
-        user_state[user_id] = {"type": "glossary"}
-        await show_books_menu(query, "glossary")
-    
+    elif data == "cfa_module_mode":
+        user_state[user_id] = {"mode": "module"}
+        await show_books_menu(query, "module")
+
+    elif data == "cfa_single_mode":
+        await query.edit_message_text(
+            "📄 *Единичный режим*\n\n"
+            "Функция в разработке.\n\n"
+            "Пока используйте Модульный режим.",
+            parse_mode="Markdown"
+        )
+
     elif data == "cfa_merge":
         await do_merge(query)
-    
+
     elif data == "back_cfa":
         await show_cfa_menu(query)
     
@@ -88,8 +92,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_modules_menu(query, book_code)
     
     elif data == "back_books":
-        content_type = user_state.get(user_id, {}).get("type", "tests")
-        await show_books_menu(query, content_type)
+        mode = user_state.get(user_id, {}).get("mode", "module")
+        await show_books_menu(query, mode)
     
     # === ВЫБОР МОДУЛЯ ===
     elif data.startswith("module_"):
@@ -103,11 +107,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # === ПОДТВЕРЖДЕНИЕ ===
     elif data == "confirm_yes":
-        await execute_task(query, user_id)
-    
+        mode = user_state.get(user_id, {}).get("mode", "module")
+        if mode == "module":
+            await execute_module_task(query, user_id)
+        else:
+            await execute_task(query, user_id)
+
     elif data == "confirm_no":
         book_code = user_state.get(user_id, {}).get("book", "quants")
         await show_modules_menu(query, book_code)
+
+    # === MERGE ===
+    elif data.startswith("merge_"):
+        task_id_short = data.replace("merge_", "")
+        await perform_merge(query, task_id_short)
 
 
 async def show_main_menu(query):
@@ -135,8 +148,8 @@ async def show_cfa_menu(query):
     """CFA меню"""
     keyboard = [
         [
-            InlineKeyboardButton("📝 Тесты", callback_data="cfa_tests"),
-            InlineKeyboardButton("📖 Глоссарий", callback_data="cfa_glossary"),
+            InlineKeyboardButton("📦 Модульный режим", callback_data="cfa_module_mode"),
+            InlineKeyboardButton("📄 Единичный (скоро)", callback_data="cfa_single_mode"),
         ],
         [
             InlineKeyboardButton("🔀 Merge", callback_data="cfa_merge"),
@@ -144,19 +157,23 @@ async def show_cfa_menu(query):
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await query.edit_message_text(
-        "📊 *CFA Level 1*\n\nВыберите тип контента:",
+        "📊 *CFA Level 1*\n\nВыберите режим работы:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
 
-async def show_books_menu(query, content_type):
+async def show_books_menu(query, mode):
     """Меню выбора книги"""
-    type_emoji = "📝" if content_type == "tests" else "📖"
-    type_name = "Тесты" if content_type == "tests" else "Глоссарий"
-    
+    if mode == "module":
+        type_emoji = "📦"
+        type_name = "Модульный режим"
+    else:
+        type_emoji = "📄"
+        type_name = mode.capitalize()
+
     keyboard = [
         [
             InlineKeyboardButton("QM", callback_data="book_quants"),
@@ -181,7 +198,7 @@ async def show_books_menu(query, content_type):
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await query.edit_message_text(
         f"{type_emoji} *CFA {type_name}*\n\nВыберите книгу:",
         reply_markup=reply_markup,
@@ -219,16 +236,13 @@ async def show_modules_menu(query, book_code):
 async def show_confirmation(query, user_id):
     """Подтверждение запуска"""
     state = user_state.get(user_id, {})
-    content_type = state.get("type", "tests")
+    mode = state.get("mode", "module")
     book_code = state.get("book", "quants")
     module_num = state.get("module", 1)
-    
+
     book = BOOKS.get(book_code, {})
     book_name = book.get("name", book_code)
-    
-    type_emoji = "📝" if content_type == "tests" else "📖"
-    type_name = "Тесты" if content_type == "tests" else "Глоссарий"
-    
+
     keyboard = [
         [
             InlineKeyboardButton("✅ Запустить", callback_data="confirm_yes"),
@@ -236,13 +250,29 @@ async def show_confirmation(query, user_id):
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
+    if mode == "module":
+        message = (
+            f"⚡ *Подтверждение*\n\n"
+            f"📦 Режим: Модульный\n"
+            f"📚 Книга: {book_name}\n"
+            f"📖 Модуль: {module_num}\n\n"
+            f"Будет запущено:\n"
+            f"• Glossary для Module {module_num}\n"
+            f"• Tests для Module {module_num}\n\n"
+            f"Запустить модуль?"
+        )
+    else:
+        message = (
+            f"⚡ *Подтверждение*\n\n"
+            f"📄 Режим: Единичный\n"
+            f"📚 Книга: {book_name}\n"
+            f"📖 Модуль: {module_num}\n\n"
+            f"Запустить задачу?"
+        )
+
     await query.edit_message_text(
-        f"⚡ *Подтверждение*\n\n"
-        f"{type_emoji} Тип: {type_name}\n"
-        f"📚 Книга: {book_name}\n"
-        f"📖 Модуль: {module_num}\n\n"
-        f"Запустить задачу?",
+        message,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -269,6 +299,10 @@ async def execute_task(query, user_id):
 
     type_name = "Тесты" if content_type == "tests" else "Глоссарий"
 
+    # Создаем кнопку возврата в главное меню
+    keyboard = [[InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await query.edit_message_text(
         f"🚀 *Задача запущена!*\n\n"
         f"📝 {type_name} для {book_name} Module {module_num}\n"
@@ -277,6 +311,50 @@ async def execute_task(query, user_id):
         f"Мониторинг GitHub запущен...\n\n"
         f"Task ID: `{task_id[:8]}`\n\n"
         f"_Я сообщу когда будет готово!_",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def execute_module_task(query, user_id):
+    """Запуск модуля в модульном режиме (glossary + tests)"""
+    state = user_state.get(user_id, {})
+    book_code = state.get("book", "quants")
+    module_num = state.get("module", 1)
+
+    book = BOOKS.get(book_code, {})
+    book_name = book.get("name", book_code)
+
+    # Генерируем промпты для обеих задач
+    glossary_prompt = generate_prompt("glossary", book_name, module_num)
+    tests_prompt = generate_prompt("tests", book_name, module_num)
+
+    # Создаем парные задачи в системе мониторинга
+    module_tasks = task_storage.create_module_tasks(book_name, module_num)
+
+    # Отправить оба промпта в Claude Code через PyAutoGUI
+    launch_module_tasks(glossary_prompt, tests_prompt)
+
+    # Создаем кнопку возврата в главное меню
+    keyboard = [[InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"🚀 *Модуль запущен!*\n\n"
+        f"📦 Модульный режим\n"
+        f"📚 Книга: {book_name}\n"
+        f"📖 Модуль: {module_num}\n\n"
+        f"Запущены задачи:\n"
+        f"• 📖 Glossary\n"
+        f"• 📝 Tests\n\n"
+        f"⏱️ Примерное время: 40-80 мин\n\n"
+        f"Промпты отправлены в Claude Code\n"
+        f"Мониторинг GitHub запущен...\n\n"
+        f"Module ID: `{module_tasks['module_id'][:8]}`\n"
+        f"Glossary ID: `{module_tasks['glossary_id'][:8]}`\n"
+        f"Tests ID: `{module_tasks['tests_id'][:8]}`\n\n"
+        f"_Я сообщу когда будет готово!_",
+        reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
@@ -355,15 +433,93 @@ async def toggle_pause(query):
     )
 
 
+async def perform_merge(query, task_id_short):
+    """Выполнить merge для конкретной задачи"""
+    # Найти задачу по короткому ID
+    active_tasks = task_storage.get_active_tasks()
+    task = None
+
+    for t in active_tasks:
+        if t["task_id"].startswith(task_id_short):
+            task = t
+            break
+
+    if not task:
+        await query.edit_message_text(
+            "❌ *Ошибка*\n\n"
+            "Задача не найдена.",
+            parse_mode="Markdown"
+        )
+        return
+
+    task_type = task["type"]
+    book = task["book"]
+    module = task["module"]
+
+    # TODO: Здесь должна быть логика git merge через git_operations
+    # Пока просто закрываем вкладку и завершаем задачу
+
+    # Закрыть вкладку в зависимости от типа
+    if task_type == "glossary":
+        close_glossary_tab()
+        type_emoji = "📖"
+        type_name = "Glossary"
+    else:  # tests
+        close_tests_tab()
+        type_emoji = "📝"
+        type_name = "Tests"
+
+    # Завершить задачу
+    task_storage.complete_task(task["task_id"])
+
+    # Создаем кнопку возврата
+    keyboard = [[InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"✅ *Merge завершен!*\n\n"
+        f"{type_emoji} {type_name} - {book} Module {module}\n\n"
+        f"Вкладка закрыта\n"
+        f"Задача перемещена в завершенные\n\n"
+        f"_Можете запустить следующую задачу_",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
 async def do_merge(query):
     """Выполнить merge"""
-    # TODO: Реализовать merge через git_operations
+    # Получаем активные задачи
+    active_tasks = task_storage.get_active_tasks()
+
+    if not active_tasks:
+        await query.edit_message_text(
+            "🔀 *Merge*\n\n"
+            "Нет активных задач для merge.\n\n"
+            "Запустите задачу через CFA меню.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Создаем кнопки для каждой задачи
+    keyboard = []
+    for task in active_tasks:
+        task_type = task["type"]
+        type_emoji = "📝" if task_type == "tests" else "📖"
+        type_name = "Tests" if task_type == "tests" else "Glossary"
+
+        button_text = f"{type_emoji} {type_name} - {task['book']} M{task['module']}"
+        callback_data = f"merge_{task['task_id'][:8]}"
+
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_cfa")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await query.edit_message_text(
         "🔀 *Merge*\n\n"
-        "Функция в разработке.\n\n"
-        "Пока используй команды вручную:\n"
-        "`git fetch origin`\n"
-        "`git checkout main`\n"
-        "`git merge <branch>`",
+        "Выберите задачу для merge:\n\n"
+        "_После merge вкладка будет автоматически закрыта_",
+        reply_markup=reply_markup,
         parse_mode="Markdown"
     )

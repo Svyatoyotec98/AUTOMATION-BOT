@@ -22,7 +22,7 @@ def _save_tasks(data):
     with open(TASKS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def create_task(task_type, book, module):
+def create_task(task_type, book, module, module_id=None):
     """
     Создать новую задачу
 
@@ -30,6 +30,7 @@ def create_task(task_type, book, module):
         task_type: тип задачи (tests/glossary)
         book: название книги (ECON, QM, etc)
         module: номер модуля
+        module_id: ID модуля для связывания задач (опционально)
 
     Returns:
         task_id: уникальный идентификатор задачи
@@ -42,6 +43,7 @@ def create_task(task_type, book, module):
         "type": task_type,
         "book": book,
         "module": module,
+        "module_id": module_id,
         "branch": None,
         "status": "in_progress",
         "checkpoints": [],
@@ -206,3 +208,57 @@ def get_task_by_branch(branch):
             return task
 
     return None
+
+def create_module_tasks(book, module):
+    """
+    Создать парные задачи для модульного режима (glossary + tests)
+
+    Args:
+        book: название книги (ECON, QM, etc)
+        module: номер модуля
+
+    Returns:
+        dict: {"module_id": "...", "glossary_id": "...", "tests_id": "..."}
+    """
+    # Создать общий module_id для связывания задач
+    module_id = str(uuid.uuid4())
+
+    # Создать задачу glossary
+    glossary_id = create_task("glossary", book, module, module_id=module_id)
+
+    # Создать задачу tests
+    tests_id = create_task("tests", book, module, module_id=module_id)
+
+    print(f"[TaskStorage] Created module tasks for {book} Module {module}")
+    print(f"[TaskStorage] Module ID: {module_id}")
+    print(f"[TaskStorage] Glossary ID: {glossary_id}")
+    print(f"[TaskStorage] Tests ID: {tests_id}")
+
+    return {
+        "module_id": module_id,
+        "glossary_id": glossary_id,
+        "tests_id": tests_id
+    }
+
+def get_tasks_by_module_id(module_id):
+    """
+    Получить все задачи модуля по module_id
+
+    Args:
+        module_id: ID модуля
+
+    Returns:
+        list: список задач модуля
+    """
+    data = _load_tasks()
+    module_tasks = []
+
+    for task in data["active_tasks"]:
+        if task.get("module_id") == module_id:
+            module_tasks.append(task)
+
+    for task in data["completed_tasks"]:
+        if task.get("module_id") == module_id:
+            module_tasks.append(task)
+
+    return module_tasks
