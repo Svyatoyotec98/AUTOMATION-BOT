@@ -262,3 +262,76 @@ def get_tasks_by_module_id(module_id):
             module_tasks.append(task)
 
     return module_tasks
+
+def remove_task(task_id):
+    """
+    Удалить задачу по ID (если ветка была удалена вручную)
+
+    Args:
+        task_id: ID задачи
+    """
+    data = _load_tasks()
+    data["active_tasks"] = [t for t in data["active_tasks"] if t["task_id"] != task_id]
+    _save_tasks(data)
+    print(f"[TaskStorage] Removed task {task_id}")
+
+def mark_task_completed(task_id):
+    """
+    Пометить задачу как завершённую (готова к merge)
+
+    Args:
+        task_id: ID задачи
+
+    Returns:
+        bool: True если задача найдена и обновлена
+    """
+    data = _load_tasks()
+    for task in data["active_tasks"]:
+        if task["task_id"] == task_id:
+            task["status"] = "ready_to_merge"
+            task["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _save_tasks(data)
+            print(f"[TaskStorage] Task {task_id} marked as ready_to_merge")
+            return True
+    return False
+
+def get_ready_to_merge_tasks():
+    """
+    Получить задачи готовые к merge
+
+    Returns:
+        list: список задач со статусом ready_to_merge
+    """
+    data = _load_tasks()
+    return [t for t in data["active_tasks"] if t.get("status") == "ready_to_merge"]
+
+def get_module_tasks(book, module):
+    """
+    Получить все задачи для конкретного модуля (glossary + tests)
+
+    Args:
+        book: название книги
+        module: номер модуля
+
+    Returns:
+        list: список задач модуля
+    """
+    data = _load_tasks()
+    return [t for t in data["active_tasks"]
+            if t["book"] == book and t["module"] == module]
+
+def is_module_ready(book, module):
+    """
+    Проверить, готов ли весь модуль (обе задачи завершены)
+
+    Args:
+        book: название книги
+        module: номер модуля
+
+    Returns:
+        bool: True если обе задачи (glossary + tests) готовы к merge
+    """
+    tasks = get_module_tasks(book, module)
+    if len(tasks) < 2:
+        return False
+    return all(t.get("status") == "ready_to_merge" for t in tasks)

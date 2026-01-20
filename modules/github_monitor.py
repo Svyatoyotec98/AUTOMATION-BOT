@@ -154,7 +154,8 @@ def get_all_branch_checkpoints(branch_name):
 
 def check_branch_completed(branch_name):
     """
-    Проверить, завершена ли ветка (есть ли коммит с 'complete')
+    Проверить, завершена ли задача в ветке.
+    Ищем коммит с 'complete', 'завершен', 'готово', 'finished', 'done' в сообщении.
 
     Args:
         branch_name: название ветки
@@ -162,5 +163,17 @@ def check_branch_completed(branch_name):
     Returns:
         bool: True если ветка завершена
     """
-    event = get_latest_branch_event(branch_name)
-    return event and event["type"] == "complete"
+    try:
+        commits = get_branch_commits(branch_name)
+
+        # Проверяем последние 5 коммитов
+        for commit in commits[:5]:
+            message_lower = commit["message"].lower()
+            completion_words = ["complete", "завершен", "готово", "finished", "done"]
+            if any(word in message_lower for word in completion_words):
+                return True
+
+        return False
+    except Exception as e:
+        print(f"[GitHubMonitor] Error checking branch {branch_name}: {e}")
+        return False
