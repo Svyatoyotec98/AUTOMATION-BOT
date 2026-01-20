@@ -1,0 +1,208 @@
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+TASKS_FILE = "data/tasks.json"
+
+def _load_tasks():
+    """Загрузить задачи из файла"""
+    if not Path(TASKS_FILE).exists():
+        return {"active_tasks": [], "completed_tasks": []}
+
+    try:
+        with open(TASKS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {"active_tasks": [], "completed_tasks": []}
+
+def _save_tasks(data):
+    """Сохранить задачи в файл"""
+    Path(TASKS_FILE).parent.mkdir(parents=True, exist_ok=True)
+    with open(TASKS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def create_task(task_type, book, module):
+    """
+    Создать новую задачу
+
+    Args:
+        task_type: тип задачи (tests/glossary)
+        book: название книги (ECON, QM, etc)
+        module: номер модуля
+
+    Returns:
+        task_id: уникальный идентификатор задачи
+    """
+    data = _load_tasks()
+
+    task_id = str(uuid.uuid4())
+    task = {
+        "task_id": task_id,
+        "type": task_type,
+        "book": book,
+        "module": module,
+        "branch": None,
+        "status": "in_progress",
+        "checkpoints": [],
+        "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "completed_at": None
+    }
+
+    data["active_tasks"].append(task)
+    _save_tasks(data)
+
+    print(f"[TaskStorage] Created task {task_id}: {task_type} {book} Module {module}")
+    return task_id
+
+def update_task_status(task_id, status):
+    """
+    Обновить статус задачи
+
+    Args:
+        task_id: ID задачи
+        status: новый статус (in_progress/completed)
+    """
+    data = _load_tasks()
+
+    for task in data["active_tasks"]:
+        if task["task_id"] == task_id:
+            task["status"] = status
+            _save_tasks(data)
+            print(f"[TaskStorage] Updated task {task_id} status to {status}")
+            return True
+
+    return False
+
+def update_task_branch(task_id, branch):
+    """
+    Обновить ветку задачи
+
+    Args:
+        task_id: ID задачи
+        branch: название ветки GitHub
+    """
+    data = _load_tasks()
+
+    for task in data["active_tasks"]:
+        if task["task_id"] == task_id:
+            task["branch"] = branch
+            _save_tasks(data)
+            print(f"[TaskStorage] Updated task {task_id} branch to {branch}")
+            return True
+
+    return False
+
+def add_checkpoint(task_id, checkpoint_name):
+    """
+    Добавить контрольную точку к задаче
+
+    Args:
+        task_id: ID задачи
+        checkpoint_name: название контрольной точки
+    """
+    data = _load_tasks()
+
+    for task in data["active_tasks"]:
+        if task["task_id"] == task_id:
+            checkpoint = {
+                "name": checkpoint_name,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            task["checkpoints"].append(checkpoint)
+            _save_tasks(data)
+            print(f"[TaskStorage] Added checkpoint '{checkpoint_name}' to task {task_id}")
+            return True
+
+    return False
+
+def complete_task(task_id):
+    """
+    Завершить задачу (переместить в completed_tasks)
+
+    Args:
+        task_id: ID задачи
+    """
+    data = _load_tasks()
+
+    for i, task in enumerate(data["active_tasks"]):
+        if task["task_id"] == task_id:
+            task["status"] = "completed"
+            task["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Переместить в completed_tasks
+            completed_task = data["active_tasks"].pop(i)
+            data["completed_tasks"].append(completed_task)
+
+            _save_tasks(data)
+            print(f"[TaskStorage] Completed task {task_id}")
+            return True
+
+    return False
+
+def get_active_tasks():
+    """
+    Получить список активных задач
+
+    Returns:
+        list: список активных задач
+    """
+    data = _load_tasks()
+    return data["active_tasks"]
+
+def get_completed_tasks_today():
+    """
+    Получить задачи завершенные сегодня
+
+    Returns:
+        list: список задач завершенных сегодня
+    """
+    data = _load_tasks()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    today_tasks = [
+        task for task in data["completed_tasks"]
+        if task["completed_at"] and task["completed_at"].startswith(today)
+    ]
+
+    return today_tasks
+
+def get_task_by_id(task_id):
+    """
+    Получить задачу по ID
+
+    Args:
+        task_id: ID задачи
+
+    Returns:
+        dict: задача или None
+    """
+    data = _load_tasks()
+
+    for task in data["active_tasks"]:
+        if task["task_id"] == task_id:
+            return task
+
+    for task in data["completed_tasks"]:
+        if task["task_id"] == task_id:
+            return task
+
+    return None
+
+def get_task_by_branch(branch):
+    """
+    Получить задачу по названию ветки
+
+    Args:
+        branch: название ветки GitHub
+
+    Returns:
+        dict: задача или None
+    """
+    data = _load_tasks()
+
+    for task in data["active_tasks"]:
+        if task["branch"] == branch:
+            return task
+
+    return None

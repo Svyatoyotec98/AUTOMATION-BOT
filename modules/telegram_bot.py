@@ -4,6 +4,7 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
 from projects.cfa.config import BOOKS
 from projects.cfa.prompts import generate_prompt
 from modules.pyautogui_actions import send_prompt_to_claude
+from modules import task_storage
 
 # Состояние пользователя
 user_state = {}
@@ -253,24 +254,28 @@ async def execute_task(query, user_id):
     content_type = state.get("type", "tests")
     book_code = state.get("book", "quants")
     module_num = state.get("module", 1)
-    
+
     book = BOOKS.get(book_code, {})
     book_name = book.get("name", book_code)
-    
+
     # Генерируем промпт
     prompt = generate_prompt(content_type, book_name, module_num)
-    
-    # TODO: Отправить промпт в Claude Code через PyAutoGUI
+
+    # Создаем задачу в системе мониторинга
+    task_id = task_storage.create_task(content_type, book_name, module_num)
+
+    # Отправить промпт в Claude Code через PyAutoGUI
     send_prompt_to_claude(prompt)
-    
+
     type_name = "Тесты" if content_type == "tests" else "Глоссарий"
-    
+
     await query.edit_message_text(
         f"🚀 *Задача запущена!*\n\n"
         f"📝 {type_name} для {book_name} Module {module_num}\n"
         f"⏱️ Примерное время: 20-40 мин\n\n"
         f"Промпт отправлен в Claude Code\n"
         f"Мониторинг GitHub запущен...\n\n"
+        f"Task ID: `{task_id[:8]}`\n\n"
         f"_Я сообщу когда будет готово!_",
         parse_mode="Markdown"
     )
@@ -278,14 +283,64 @@ async def execute_task(query, user_id):
 
 async def show_status(query):
     """Показать статус"""
-    await query.edit_message_text(
-        "📈 *Статус системы*\n\n"
-        "🟢 Бот работает\n"
-        "🟡 Мониторинг: не активен\n\n"
-        "Текущие задачи: нет\n"
-        "Открытые ветки: проверьте GitHub",
-        parse_mode="Markdown"
-    )
+    # Получаем активные задачи
+    active_tasks = task_storage.get_active_tasks()
+    completed_today = task_storage.get_completed_tasks_today()
+
+    # Формируем сообщение
+    message = "📈 *Статус системы*\n\n"
+    message += "🟢 Бот работает\n"
+
+    if active_tasks:
+        message += f"🟢 Мониторинг: активен ({len(active_tasks)} задач)\n"
+    else:
+        message += "🟡 Мониторинг: нет активных задач\n"
+
+    message += "━━━━━━━━━━━━━━━\n"
+
+    # Активные задачи
+    if active_tasks:
+        message += "📋 *Активные задачи:*\n\n"
+
+        for task in active_tasks:
+            task_type = task["type"]
+            type_emoji = "📝" if task_type == "tests" else "📖"
+            type_name = "Тесты" if task_type == "tests" else "Глоссарий"
+
+            message += f"{type_emoji} *{type_name}* {task['book']} Module {task['module']}\n"
+
+            # Время начала
+            started_time = task["started_at"].split()[1][:5]  # HH:MM
+            message += f"⏱️ Начато: {started_time}\n"
+
+            # Checkpoint'ы
+            if task["checkpoints"]:
+                for cp in task["checkpoints"]:
+                    cp_time = cp["time"].split()[1][:5]  # HH:MM
+                    message += f"🔄 {cp['name']}: {cp_time}\n"
+
+            # Ветка (если есть)
+            if task["branch"]:
+                branch_short = task["branch"].replace("claude/", "")[:25]
+                message += f"🌿 Ветка: {branch_short}...\n"
+
+            message += "\n"
+
+        message += "━━━━━━━━━━━━━━━\n"
+
+    else:
+        message += "📋 *Активные задачи:* нет\n"
+        message += "━━━━━━━━━━━━━━━\n"
+
+    # Готовые к мёржу (задачи со статусом completed в active_tasks)
+    ready_to_merge = [t for t in active_tasks if t["status"] == "completed"]
+    message += f"⏳ *Готовы к мёржу:* {len(ready_to_merge)}\n"
+    message += "━━━━━━━━━━━━━━━\n"
+
+    # Завершено сегодня
+    message += f"📁 *Завершено сегодня:* {len(completed_today)}"
+
+    await query.edit_message_text(message, parse_mode="Markdown")
 
 
 async def toggle_pause(query):
