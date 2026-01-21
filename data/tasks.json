@@ -1,51 +1,27 @@
 {
   "active_tasks": [
     {
-      "task_id": "1bb1059f-b970-4711-84fd-895c6142ce78",
+      "task_id": "9a9d8f45-e405-4e70-aeea-62e554886a4b",
       "type": "glossary",
       "book": "Economics",
-      "module": 3,
-      "module_id": "8063dd4a-5fe9-474c-b0e8-5cba92fcdc80",
+      "module": 7,
+      "module_id": "a311db20-202b-49f5-9ed3-ff38ee65c4e0",
       "branch": null,
       "status": "in_progress",
       "checkpoints": [],
-      "started_at": "2026-01-20 18:08:39",
+      "started_at": "2026-01-21 16:52:16",
       "completed_at": null
     },
     {
-      "task_id": "6921600d-da22-4a6a-9758-e866f0f31e89",
+      "task_id": "ea08e718-663c-40d6-94bd-2018f70dbce0",
       "type": "tests",
       "book": "Economics",
-      "module": 3,
-      "module_id": "8063dd4a-5fe9-474c-b0e8-5cba92fcdc80",
+      "module": 7,
+      "module_id": "a311db20-202b-49f5-9ed3-ff38ee65c4e0",
       "branch": null,
       "status": "in_progress",
       "checkpoints": [],
-      "started_at": "2026-01-20 18:08:39",
-      "completed_at": null
-    },
-    {
-      "task_id": "aa3a87f4-26b2-47f0-8f3b-cb30aff8182d",
-      "type": "glossary",
-      "book": "Economics",
-      "module": 3,
-      "module_id": "ae26ee3f-b274-470b-bd8c-188f49974f97",
-      "branch": null,
-      "status": "in_progress",
-      "checkpoints": [],
-      "started_at": "2026-01-20 18:47:55",
-      "completed_at": null
-    },
-    {
-      "task_id": "c94fef41-c3b7-42bf-8581-6276ce095873",
-      "type": "tests",
-      "book": "Economics",
-      "module": 3,
-      "module_id": "ae26ee3f-b274-470b-bd8c-188f49974f97",
-      "branch": null,
-      "status": "in_progress",
-      "checkpoints": [],
-      "started_at": "2026-01-20 18:47:55",
+      "started_at": "2026-01-21 16:52:16",
       "completed_at": null
     }
   ],
