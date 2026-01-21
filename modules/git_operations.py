@@ -29,6 +29,13 @@ def git_merge(branch, message=None):
         return run_git_command(["merge", branch, "-m", message])
     return run_git_command(["merge", branch, "--no-edit"])
 
+def git_merge_theirs(branch):
+    """
+    Смёрджить ветку с автоматическим разрешением конфликтов.
+    -X theirs = при конфликте брать версию из входящей ветки (Accept Incoming Change)
+    """
+    return run_git_command(["merge", branch, "-X", "theirs", "-m", f"Merge {branch}"])
+
 def git_push():
     """Запушить изменения"""
     return run_git_command(["push", "origin", "main"])
@@ -64,3 +71,70 @@ def get_claude_branches():
             branch = line.replace("origin/", "")
             branches.append(branch)
     return branches
+
+def merge_module_branches(glossary_branch, tests_branch, repo_path=REPO_PATH):
+    """
+    Смёрджить обе ветки модуля (glossary + tests) в main.
+
+    Алгоритм:
+    1. git fetch origin
+    2. git checkout main && git pull
+    3. git merge glossary-ветка (обычно без конфликтов)
+    4. git merge tests-ветка -X theirs (автоматически Accept Incoming при конфликте)
+    5. git push origin main
+    6. Удалить обе ветки
+
+    Returns:
+        dict: {"success": bool, "message": str}
+    """
+    results = []
+
+    try:
+        # 1. Fetch
+        print("[Git] Fetching origin...")
+        git_fetch()
+
+        # 2. Checkout main и pull
+        print("[Git] Checkout main...")
+        checkout_result = git_checkout("main")
+        if checkout_result.returncode != 0:
+            return {"success": False, "message": f"Checkout main failed: {checkout_result.stderr}"}
+
+        pull_result = git_pull()
+        if pull_result.returncode != 0:
+            return {"success": False, "message": f"Pull failed: {pull_result.stderr}"}
+
+        # 3. Merge glossary (первым, обычно без конфликтов)
+        print(f"[Git] Merging glossary: {glossary_branch}...")
+        glossary_result = git_merge(glossary_branch, f"Merge {glossary_branch}")
+        if glossary_result.returncode != 0:
+            # Попробуем с -X theirs
+            glossary_result = git_merge_theirs(glossary_branch)
+            if glossary_result.returncode != 0:
+                return {"success": False, "message": f"Merge glossary failed: {glossary_result.stderr}"}
+        results.append(f"✅ Glossary merged")
+
+        # 4. Merge tests с -X theirs (автоматическое разрешение конфликтов)
+        print(f"[Git] Merging tests: {tests_branch}...")
+        tests_result = git_merge_theirs(tests_branch)
+        if tests_result.returncode != 0:
+            return {"success": False, "message": f"Merge tests failed: {tests_result.stderr}"}
+        results.append(f"✅ Tests merged")
+
+        # 5. Push
+        print("[Git] Pushing to origin...")
+        push_result = git_push()
+        if push_result.returncode != 0:
+            return {"success": False, "message": f"Push failed: {push_result.stderr}"}
+        results.append(f"✅ Pushed to main")
+
+        # 6. Удалить ветки
+        print("[Git] Deleting branches...")
+        git_delete_branch_remote(glossary_branch)
+        git_delete_branch_remote(tests_branch)
+        results.append(f"✅ Branches deleted")
+
+        return {"success": True, "message": "\n".join(results)}
+
+    except Exception as e:
+        return {"success": False, "message": f"Error: {str(e)}"}
