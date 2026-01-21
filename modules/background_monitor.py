@@ -9,6 +9,7 @@ _notified_tasks = set()
 async def background_monitor_loop(bot, admin_id):
     """
     Фоновый мониторинг активных задач
+    Проверка каждую минуту
 
     Args:
         bot: экземпляр Telegram Bot
@@ -35,38 +36,45 @@ async def background_monitor_loop(bot, admin_id):
                 if task.get("status") == "ready_to_merge":
                     continue
 
-                # Если есть ветка — проверяем завершение
-                if branch:
-                    try:
-                        if github_monitor.check_branch_completed(branch):
-                            # Помечаем как готовую
-                            task_storage.mark_task_completed(task_id)
+                # Если нет ветки — пропускаем (ещё создаётся)
+                if not branch:
+                    continue
 
-                            # Отправляем уведомление
-                            if task_id not in _notified_tasks:
-                                await send_completion_notification(bot, admin_id, task)
-                                _notified_tasks.add(task_id)
+                try:
+                    # Проверяем завершение
+                    if github_monitor.check_branch_completed(branch):
+                        task_storage.mark_task_completed(task_id)
 
-                                # Проверяем, готов ли весь модуль
-                                if task_storage.is_module_ready(task["book"], task["module"]):
-                                    await send_module_ready_notification(bot, admin_id, task)
+                        # Отправляем уведомление о завершении
+                        if task_id not in _notified_tasks:
+                            await send_completion_notification(bot, admin_id, task)
+                            _notified_tasks.add(task_id)
 
-                    except Exception as e:
-                        print(f"[BackgroundMonitor] Error checking task {task_id}: {e}")
+                            # Проверяем, готов ли весь модуль
+                            if task_storage.is_module_ready(task["book"], task["module"]):
+                                await send_module_ready_notification(bot, admin_id, task)
+                        continue
 
-                # Проверка на отсутствие активности
-                started = datetime.strptime(task["started_at"], "%Y-%m-%d %H:%M:%S")
-                minutes_passed = (datetime.now() - started).total_seconds() / 60
+                    # Проверяем активность по последнему коммиту
+                    last_commit = github_monitor.get_last_commit_info(branch)
 
-                if minutes_passed > 20 and len(task.get("checkpoints", [])) == 0:
-                    # Нет активности > 20 минут
-                    if f"{task_id}_inactive" not in _notified_tasks:
-                        await send_inactive_warning(bot, admin_id, task, int(minutes_passed))
-                        _notified_tasks.add(f"{task_id}_inactive")
+                    if last_commit:
+                        mins_ago = last_commit["minutes_ago"]
+
+                        # Если > 15 минут без коммитов — предупреждаем (один раз)
+                        if mins_ago > 15:
+                            inactive_key = f"{task_id}_inactive"
+                            if inactive_key not in _notified_tasks:
+                                await send_inactive_warning(bot, admin_id, task, mins_ago)
+                                _notified_tasks.add(inactive_key)
+
+                except Exception as e:
+                    print(f"[BackgroundMonitor] Error checking task {task_id}: {e}")
 
         except Exception as e:
             print(f"[BackgroundMonitor] Loop error: {e}")
             await asyncio.sleep(60)
+
 
 async def send_completion_notification(bot, admin_id, task):
     """Отправить уведомление о завершении задачи"""
@@ -86,6 +94,7 @@ async def send_completion_notification(bot, admin_id, task):
     except Exception as e:
         print(f"[BackgroundMonitor] Failed to send notification: {e}")
 
+
 async def send_module_ready_notification(bot, admin_id, task):
     """Отправить уведомление о готовности всего модуля"""
     message = (
@@ -98,9 +107,10 @@ async def send_module_ready_notification(bot, admin_id, task):
 
     try:
         await bot.send_message(chat_id=admin_id, text=message, parse_mode="Markdown")
-        print(f"[BackgroundMonitor] Sent module ready notification for {task['book']} M{task['module']}")
+        print(f"[BackgroundMonitor] Sent module ready notification")
     except Exception as e:
         print(f"[BackgroundMonitor] Failed to send notification: {e}")
+
 
 async def send_inactive_warning(bot, admin_id, task, minutes):
     """Отправить предупреждение об отсутствии активности"""
@@ -108,11 +118,11 @@ async def send_inactive_warning(bot, admin_id, task, minutes):
     type_name = "Глоссарий" if task["type"] == "glossary" else "Тесты"
 
     message = (
-        f"⚠️ *Нет активности*\n\n"
+        f"⚠️ *Возможно зависла*\n\n"
         f"{type_emoji} {type_name}\n"
         f"📚 {task['book']} Module {task['module']}\n\n"
-        f"Прошло {minutes} минут без активности.\n"
-        f"Возможно задача зависла?"
+        f"Последний коммит: {minutes} мин назад\n"
+        f"Проверь вкладку Claude Code"
     )
 
     try:

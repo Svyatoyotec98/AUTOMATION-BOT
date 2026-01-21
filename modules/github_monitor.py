@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime
 from github import Github
 from config import GITHUB_TOKEN
 
@@ -191,3 +192,36 @@ def check_branch_completed(branch_name):
     except Exception as e:
         print(f"[GitHubMonitor] Error checking branch {branch_name}: {e}")
         return False
+
+def get_last_commit_info(branch_name):
+    """
+    Получить информацию о последнем коммите ветки.
+
+    Args:
+        branch_name: название ветки
+
+    Returns:
+        dict: {
+            "message": str,      # сообщение коммита
+            "time": datetime,    # время коммита
+            "minutes_ago": int   # сколько минут назад
+        }
+        или None если ветки нет / ошибка
+    """
+    try:
+        repo = _get_repo()
+        branch = repo.get_branch(branch_name)
+        commit = branch.commit
+
+        commit_time = commit.commit.author.date  # datetime в UTC
+        now = datetime.utcnow()
+        minutes_ago = int((now - commit_time).total_seconds() / 60)
+
+        return {
+            "message": commit.commit.message,
+            "time": commit_time,
+            "minutes_ago": minutes_ago
+        }
+    except Exception as e:
+        print(f"[GitHubMonitor] Error getting last commit for {branch_name}: {e}")
+        return None

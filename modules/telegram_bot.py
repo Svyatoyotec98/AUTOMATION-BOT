@@ -5,6 +5,7 @@ from projects.cfa.config import BOOKS
 from projects.cfa.prompts import generate_prompt
 from modules.pyautogui_actions import send_prompt_to_claude, launch_module_tasks, close_glossary_tab, close_tests_tab
 from modules import task_storage
+from modules.github_monitor import get_last_commit_info
 
 # Состояние пользователя
 user_state = {}
@@ -471,21 +472,43 @@ async def show_status(query):
         for task in active_tasks:
             started = datetime.strptime(task["started_at"], "%Y-%m-%d %H:%M:%S")
             started_time = task["started_at"].split()[1][:5]
-            minutes_passed = (datetime.now() - started).total_seconds() / 60
+            minutes_since_start = (datetime.now() - started).total_seconds() / 60
+
+            branch = task.get("branch")
+            last_commit = None
+
+            if branch:
+                last_commit = get_last_commit_info(branch)
 
             # Определяем статус
             if task.get("status") == "ready_to_merge":
                 status_icon = "✅"
                 status_text = "Готов к merge"
-            elif len(task.get("checkpoints", [])) > 0:
-                status_icon = "🟢"
-                status_text = "Работает"
-            elif minutes_passed > 15:
-                status_icon = "⚠️"
-                status_text = f"Нет активности {int(minutes_passed)} мин"
+            elif not branch:
+                # Нет ветки
+                if minutes_since_start < 5:
+                    status_icon = "🕐"
+                    status_text = "Ожидает создания ветки"
+                else:
+                    status_icon = "❓"
+                    status_text = "Ветка не найдена"
+            elif last_commit:
+                # Есть ветка и информация о коммите
+                mins_ago = last_commit["minutes_ago"]
+
+                if mins_ago < 5:
+                    status_icon = "🟢"
+                    status_text = f"Работает (коммит {mins_ago} мин назад)"
+                elif mins_ago < 15:
+                    status_icon = "🔵"
+                    status_text = f"В процессе (коммит {mins_ago} мин назад)"
+                else:
+                    status_icon = "⚠️"
+                    status_text = f"Нет активности {mins_ago} мин"
             else:
+                # Есть ветка, но не удалось получить коммит
                 status_icon = "🔵"
-                status_text = "Запущена"
+                status_text = "Проверяю..."
 
             type_emoji = "📖" if task["type"] == "glossary" else "📝"
             type_name = "Глоссарий" if task["type"] == "glossary" else "Тесты"
@@ -493,9 +516,15 @@ async def show_status(query):
             message += f"{status_icon} {type_emoji} *{type_name}* {task['book']} Module {task['module']}\n"
             message += f"⏱ Начато: {started_time} | {status_text}\n"
 
-            if task.get("branch"):
-                branch_short = task["branch"].replace("claude/", "")[:20]
-                message += f"🌿 `{branch_short}...`\n"
+            # Показываем ветку если есть
+            if branch:
+                branch_short = branch.replace("claude/", "")[:30]
+                message += f"🌿 `{branch_short}`\n"
+
+            # Показываем последний коммит если есть
+            if last_commit and task.get("status") != "ready_to_merge":
+                commit_msg = last_commit["message"].split("\n")[0][:40]  # первая строка, до 40 символов
+                message += f"💬 _{commit_msg}_\n"
 
             message += "\n"
 
