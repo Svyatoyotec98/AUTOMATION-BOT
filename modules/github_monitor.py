@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from github import Github
 from config import GITHUB_TOKEN
 
@@ -155,40 +155,23 @@ def get_all_branch_checkpoints(branch_name):
 
 def check_branch_completed(branch_name):
     """
-    Проверить, завершена ли задача в ветке.
-
-    Паттерны завершения из реальных коммитов:
-    - "complete - XX questions" (тесты)
-    - "complete - XX terms" (глоссарий)
-    - "- XX terms" (глоссарий без слова complete)
-    - "- XX questions" (тесты без слова complete)
-
-    Args:
-        branch_name: название ветки
-
-    Returns:
-        bool: True если ветка завершена
+    Проверить завершена ли задача в ветке.
+    Проверяем ТОЛЬКО ПОСЛЕДНИЙ коммит — он должен содержать слово "complete"
     """
     try:
-        commits = get_branch_commits(branch_name)
+        repo = _get_repo()
+        branch = repo.get_branch(branch_name)
+        last_commit = branch.commit
 
-        # Проверяем последние 10 коммитов
-        for commit in commits[:10]:
-            message = commit["message"].lower()
+        # Проверяем ТОЛЬКО последний коммит
+        message = last_commit.commit.message.lower()
 
-            # Паттерн 1: "complete" в сообщении
-            if "complete" in message:
-                return True
-
-            # Паттерн 2: "- XX terms" (глоссарий завершён)
-            if re.search(r'-\s*\d+\s*terms', message):
-                return True
-
-            # Паттерн 3: "- XX questions" (тесты завершены)
-            if re.search(r'-\s*\d+\s*questions', message):
-                return True
+        if "complete" in message:
+            print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (last commit contains 'complete')")
+            return True
 
         return False
+
     except Exception as e:
         print(f"[GitHubMonitor] Error checking branch {branch_name}: {e}")
         return False
@@ -196,25 +179,19 @@ def check_branch_completed(branch_name):
 def get_last_commit_info(branch_name):
     """
     Получить информацию о последнем коммите ветки.
-
-    Args:
-        branch_name: название ветки
-
-    Returns:
-        dict: {
-            "message": str,      # сообщение коммита
-            "time": datetime,    # время коммита
-            "minutes_ago": int   # сколько минут назад
-        }
-        или None если ветки нет / ошибка
     """
     try:
         repo = _get_repo()
         branch = repo.get_branch(branch_name)
         commit = branch.commit
 
-        commit_time = commit.commit.author.date  # datetime в UTC
-        now = datetime.utcnow()
+        # Время коммита (aware datetime)
+        commit_time = commit.commit.author.date
+
+        # Текущее время тоже делаем aware (UTC)
+        now = datetime.now(timezone.utc)
+
+        # Теперь можно вычитать
         minutes_ago = int((now - commit_time).total_seconds() / 60)
 
         return {
