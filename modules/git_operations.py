@@ -89,6 +89,12 @@ def merge_module_branches(glossary_branch, tests_branch, repo_path=REPO_PATH):
     """
     results = []
 
+    # Добавляем origin/ если нет
+    if not glossary_branch.startswith("origin/"):
+        glossary_branch = f"origin/{glossary_branch}"
+    if not tests_branch.startswith("origin/"):
+        tests_branch = f"origin/{tests_branch}"
+
     try:
         # 1. Fetch
         print("[Git] Fetching origin...")
