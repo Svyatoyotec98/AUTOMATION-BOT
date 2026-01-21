@@ -80,8 +80,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-    elif data == "cfa_merge":
-        await do_merge(query)
+    elif data == "cfa_merge_module":
+        await show_merge_module_menu(query)
 
     elif data == "back_cfa":
         await show_cfa_menu(query)
@@ -131,6 +131,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "clear_all_tasks":
         await clear_all_tasks(query)
 
+    # === DO MERGE MODULE ===
+    elif data.startswith("do_merge_"):
+        module_key = data.replace("do_merge_", "")
+        await execute_merge_module(query, module_key)
+
 
 async def show_main_menu(query):
     """Главное меню"""
@@ -157,18 +162,19 @@ async def show_cfa_menu(query):
     """CFA меню"""
     keyboard = [
         [
-            InlineKeyboardButton("📦 Модульный режим", callback_data="cfa_module_mode"),
-            InlineKeyboardButton("📄 Единичный (скоро)", callback_data="cfa_single_mode"),
+            InlineKeyboardButton("📝 Модульный режим", callback_data="cfa_module_mode"),
         ],
         [
-            InlineKeyboardButton("🔀 Merge", callback_data="cfa_merge"),
+            InlineKeyboardButton("🔀 Merge модуль", callback_data="cfa_merge_module"),
+        ],
+        [
             InlineKeyboardButton("◀️ Назад", callback_data="back_main"),
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(
-        "📊 *CFA Level 1*\n\nВыберите режим работы:",
+        "📊 *CFA Level 1*\n\nВыберите действие:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -634,6 +640,147 @@ async def perform_merge(query, task_id_short):
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
+
+async def show_merge_module_menu(query):
+    """Показать модули готовые к merge"""
+    ready_tasks = task_storage.get_ready_to_merge_tasks()
+
+    if not ready_tasks:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="project_cfa")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🔀 *Merge модуль*\n\n"
+            "Нет задач готовых к merge.\n\n"
+            "_Дождись завершения glossary и tests для модуля._",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Группируем по модулям
+    modules = {}
+    for task in ready_tasks:
+        key = f"{task['book']}_{task['module']}"
+        if key not in modules:
+            modules[key] = {"book": task["book"], "module": task["module"], "tasks": []}
+        modules[key]["tasks"].append(task)
+
+    # Показываем только модули где готовы ОБА (glossary + tests)
+    complete_modules = {k: v for k, v in modules.items() if len(v["tasks"]) == 2}
+
+    if not complete_modules:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="project_cfa")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🔀 *Merge модуль*\n\n"
+            "Нет полностью готовых модулей.\n\n"
+            "_Нужны ОБА: glossary ✅ и tests ✅_",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Создаём кнопки для каждого готового модуля
+    keyboard = []
+    for key, data in complete_modules.items():
+        keyboard.append([InlineKeyboardButton(
+            f"🔀 {data['book']} Module {data['module']}",
+            callback_data=f"do_merge_{key}"
+        )])
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="project_cfa")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    message = "🔀 *Merge модуль*\n\n"
+    message += "Готовы к merge:\n\n"
+    for key, data in complete_modules.items():
+        message += f"📚 *{data['book']} Module {data['module']}*\n"
+        for task in data["tasks"]:
+            type_emoji = "📖" if task["type"] == "glossary" else "📝"
+            message += f"  {type_emoji} {task['type']} ✅\n"
+        message += "\n"
+
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode="Markdown")
+
+
+async def execute_merge_module(query, module_key):
+    """Выполнить merge модуля"""
+    from modules.git_operations import merge_module_branches
+
+    # Парсим ключ
+    parts = module_key.rsplit("_", 1)
+    book = parts[0]
+    module = int(parts[1])
+
+    # Находим задачи для этого модуля
+    ready_tasks = task_storage.get_ready_to_merge_tasks()
+    module_tasks = [t for t in ready_tasks if t["book"] == book and t["module"] == module]
+
+    if len(module_tasks) != 2:
+        await query.edit_message_text(
+            f"❌ Ошибка: нужны обе задачи (glossary + tests) для merge",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Находим ветки
+    glossary_branch = None
+    tests_branch = None
+
+    for task in module_tasks:
+        if task["type"] == "glossary":
+            glossary_branch = task.get("branch")
+        else:
+            tests_branch = task.get("branch")
+
+    if not glossary_branch or not tests_branch:
+        await query.edit_message_text(
+            f"❌ Ошибка: не найдены ветки для merge\n\n"
+            f"Glossary branch: {glossary_branch}\n"
+            f"Tests branch: {tests_branch}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Показываем процесс
+    await query.edit_message_text(
+        f"🔄 *Выполняю merge...*\n\n"
+        f"📚 {book} Module {module}\n\n"
+        f"📖 Glossary: `{glossary_branch}`\n"
+        f"📝 Tests: `{tests_branch}`",
+        parse_mode="Markdown"
+    )
+
+    # Выполняем merge
+    result = merge_module_branches(glossary_branch, tests_branch)
+
+    # Создаем кнопку возврата
+    keyboard = [[InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if result["success"]:
+        # Удаляем задачи из storage
+        for task in module_tasks:
+            task_storage.complete_task(task["task_id"])
+
+        await query.edit_message_text(
+            f"✅ *Merge выполнен!*\n\n"
+            f"📚 {book} Module {module}\n\n"
+            f"{result['message']}\n\n"
+            f"_Модуль смёржен в main и ветки удалены._",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text(
+            f"❌ *Merge не удался*\n\n"
+            f"📚 {book} Module {module}\n\n"
+            f"Ошибка: {result['message']}\n\n"
+            f"_Попробуй смёржить вручную._",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
 
 async def do_merge(query):
