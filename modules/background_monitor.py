@@ -108,6 +108,26 @@ async def background_monitor_loop(bot, admin_id):
             await asyncio.sleep(120)
 
 
+def is_content_branch(branch_name):
+    """
+    Проверить что это ветка для контента, а не служебная
+
+    Уведомляем ТОЛЬКО о:
+    - claude/add-*-module-*-glossary-*
+    - claude/add-*-module-*-tests-*
+    - claude/add-*-module-*-qbank-*
+
+    НЕ уведомляем о:
+    - claude/fix-*
+    - claude/update-*
+    - claude/refactor-*
+    - claude/merge-*
+    """
+    branch_lower = branch_name.lower()
+    content_patterns = ['-glossary-', '-tests-', '-qbank-']
+    return any(pattern in branch_lower for pattern in content_patterns)
+
+
 async def check_new_branches(bot, admin_id, all_branches):
     """
     Проверить новые ветки и отправить уведомления
@@ -124,7 +144,12 @@ async def check_new_branches(bot, admin_id, all_branches):
 
     for branch in new_branches:
         print(f"[BackgroundMonitor] New branch detected: {branch}")
-        await send_new_branch_notification(bot, admin_id, branch)
+
+        # Уведомляем только о контентных ветках
+        if is_content_branch(branch):
+            await send_new_branch_notification(bot, admin_id, branch)
+        else:
+            print(f"[BackgroundMonitor] Skipping notification for service branch: {branch}")
 
     # Обновляем кэш
     _known_branches = set(all_branches)
