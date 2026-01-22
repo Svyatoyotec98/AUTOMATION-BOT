@@ -156,7 +156,12 @@ def get_all_branch_checkpoints(branch_name):
 def check_branch_completed(branch_name):
     """
     Проверить завершена ли задача в ветке.
-    Проверяем ТОЛЬКО ПОСЛЕДНИЙ коммит — он должен содержать слово "complete"
+    Проверяем ТОЛЬКО ПОСЛЕДНИЙ коммит на наличие паттернов завершения:
+    - "complete"
+    - "готов"
+    - "checkpoint 2" или выше
+    - "finished"
+    - "done"
     """
     try:
         repo = _get_repo()
@@ -166,9 +171,27 @@ def check_branch_completed(branch_name):
         # Проверяем ТОЛЬКО последний коммит
         message = last_commit.commit.message.lower()
 
-        if "complete" in message:
-            print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (last commit contains 'complete')")
-            return True
+        # Паттерны завершения
+        completion_patterns = [
+            "complete",
+            "готов",
+            "finished",
+            "done"
+        ]
+
+        # Проверка базовых паттернов
+        for pattern in completion_patterns:
+            if pattern in message:
+                print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (found '{pattern}' in last commit)")
+                return True
+
+        # Проверка checkpoint 2 или выше
+        checkpoint_match = re.search(r'checkpoint\s+(\d+)', message)
+        if checkpoint_match:
+            checkpoint_num = int(checkpoint_match.group(1))
+            if checkpoint_num >= 2:
+                print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (checkpoint {checkpoint_num} >= 2)")
+                return True
 
         return False
 
@@ -202,3 +225,55 @@ def get_last_commit_info(branch_name):
     except Exception as e:
         print(f"[GitHubMonitor] Error getting last commit for {branch_name}: {e}")
         return None
+
+def find_branch_for_task(task_type, book, module, branches):
+    """
+    Найти подходящую ветку для задачи по гибким паттернам.
+
+    Args:
+        task_type: тип задачи ("glossary" или "tests")
+        book: название книги (например, "Financial Reporting", "Quantitative Methods")
+        module: номер модуля
+        branches: список веток для поиска
+
+    Returns:
+        str: название найденной ветки или None
+    """
+    # Извлекаем первое слово книги (например, "financial" из "Financial Reporting")
+    first_word = book.lower().split()[0] if book else ""
+
+    module_str = str(module)
+
+    for branch in branches:
+        branch_lower = branch.lower()
+
+        # Проверка первого слова книги (например, "financial", "quantitative")
+        book_match = first_word in branch_lower if first_word else False
+
+        # Проверка номера модуля в разных форматах:
+        # - module-5
+        # - module5
+        # - -5-
+        # - заканчивается на -5
+        module_match = (
+            f"module-{module_str}" in branch_lower or
+            f"module{module_str}" in branch_lower or
+            f"-{module_str}-" in branch_lower or
+            branch_lower.endswith(f"-{module_str}")
+        )
+
+        # Проверка типа задачи
+        if task_type == "glossary":
+            # Ищем "glossary" или "glossar" (без y)
+            type_match = "glossar" in branch_lower
+        else:  # tests
+            # Ищем "test" или "qbank"
+            type_match = "test" in branch_lower or "qbank" in branch_lower
+
+        # Если все совпало - возвращаем ветку
+        if book_match and module_match and type_match:
+            print(f"[GitHubMonitor] Found branch for {book} Module {module} {task_type}: {branch}")
+            return branch
+
+    print(f"[GitHubMonitor] No branch found for {book} Module {module} {task_type}")
+    return None

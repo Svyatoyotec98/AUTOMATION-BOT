@@ -1,5 +1,5 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
 from projects.cfa.config import BOOKS
 from projects.cfa.prompts import generate_prompt
@@ -10,17 +10,29 @@ from modules.github_monitor import get_last_commit_info
 # Состояние пользователя
 user_state = {}
 
+def get_persistent_keyboard():
+    """Создать persistent keyboard с основными кнопками"""
+    keyboard = [
+        [
+            KeyboardButton("📊 Статус"),
+            KeyboardButton("🏠 Меню"),
+            KeyboardButton("🔀 Merge"),
+        ]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+
 def create_bot():
     """Создать и настроить бота"""
     if not TELEGRAM_BOT_TOKEN:
         return None
-    
+
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
+
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(button_callback))
-    
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+
     return app
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -36,11 +48,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    persistent_keyboard = get_persistent_keyboard()
+
     await update.message.reply_text(
         "🤖 *AUTOMATION BOT*\n\nВыберите проект:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
+    )
+
+    # Отправляем persistent keyboard отдельным сообщением
+    await update.message.reply_text(
+        "Быстрые команды:",
+        reply_markup=persistent_keyboard
     )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -376,7 +395,7 @@ async def execute_module_task(query, user_id):
 
 async def refresh_and_show_status(query):
     """Обновить статус — синхронизировать с GitHub"""
-    from modules.github_monitor import get_claude_branches, check_branch_completed
+    from modules.github_monitor import get_claude_branches, check_branch_completed, find_branch_for_task
     from datetime import datetime
 
     try:
@@ -397,29 +416,19 @@ async def refresh_and_show_status(query):
 
         # === НОВОЕ: Привязка веток к задачам без ветки ===
         if not branch and github_branches:
-            # Ищем подходящую ветку по паттерну
-            book_lower = task["book"].lower()
-            task_type = task["type"]  # "glossary" или "tests"
-            module = str(task["module"])
+            # Используем новую улучшенную функцию поиска
+            found_branch = find_branch_for_task(
+                task["type"],
+                task["book"],
+                task["module"],
+                github_branches
+            )
 
-            for gb in github_branches:
-                gb_lower = gb.lower()
-
-                # Проверяем что ветка соответствует задаче
-                book_match = any(word in gb_lower for word in book_lower.split()[:1])  # первое слово книги
-                module_match = f"module-{module}" in gb_lower or f"module{module}" in gb_lower or f"-{module}-" in gb_lower or gb_lower.endswith(f"-{module}")
-
-                if task_type == "glossary":
-                    type_match = "glossary" in gb_lower
-                else:
-                    type_match = "test" in gb_lower or "qbank" in gb_lower
-
-                if book_match and module_match and type_match:
-                    task_storage.update_task_branch(task["task_id"], gb)
-                    branch = gb
-                    linked_count += 1
-                    print(f"[Refresh] Linked task {task['task_id'][:8]} to branch {gb}")
-                    break
+            if found_branch:
+                task_storage.update_task_branch(task["task_id"], found_branch)
+                branch = found_branch
+                linked_count += 1
+                print(f"[Refresh] Linked task {task['task_id'][:8]} to branch {found_branch}")
 
         # Проверка: если ветка есть, но её нет в GitHub — удаляем задачу
         if branch and github_branches and branch not in github_branches:
@@ -484,7 +493,10 @@ async def show_status(query):
             last_commit = None
 
             if branch:
+                print(f"[Status] Getting commit info for task {task['task_id'][:8]} branch: {branch}")
                 last_commit = get_last_commit_info(branch)
+                if last_commit:
+                    print(f"[Status] Last commit was {last_commit['minutes_ago']} minutes ago")
 
             # Определяем статус
             if task.get("status") == "ready_to_merge":
@@ -781,6 +793,218 @@ async def execute_merge_module(query, module_key):
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка текстовых сообщений от persistent keyboard"""
+    text = update.message.text
+    user_id = update.message.from_user.id
+
+    if text == "📊 Статус":
+        await show_status_message(update)
+    elif text == "🏠 Меню":
+        await show_main_menu_message(update)
+    elif text == "🔀 Merge":
+        await show_merge_menu_message(update)
+
+
+async def show_status_message(update: Update):
+    """Показать статус (для текстовых команд)"""
+    from datetime import datetime
+
+    active_tasks = task_storage.get_active_tasks()
+    ready_to_merge = task_storage.get_ready_to_merge_tasks()
+    completed_today = task_storage.get_completed_tasks_today()
+
+    message = "📊 *Статус системы*\n\n"
+    message += "🟢 Бот работает\n"
+
+    if active_tasks:
+        message += f"🟢 Мониторинг: активен ({len(active_tasks)} задач)\n"
+    else:
+        message += "🟡 Мониторинг: нет активных задач\n"
+
+    message += "━━━━━━━━━━━━━━━\n"
+
+    # Активные задачи с индикаторами
+    if active_tasks:
+        message += "📋 *Активные задачи:*\n\n"
+
+        for task in active_tasks:
+            started = datetime.strptime(task["started_at"], "%Y-%m-%d %H:%M:%S")
+            started_time = task["started_at"].split()[1][:5]
+            minutes_since_start = (datetime.now() - started).total_seconds() / 60
+
+            branch = task.get("branch")
+            last_commit = None
+
+            if branch:
+                last_commit = get_last_commit_info(branch)
+
+            # Определяем статус
+            if task.get("status") == "ready_to_merge":
+                status_icon = "✅"
+                status_text = "Готов к merge"
+            elif not branch:
+                # Нет ветки
+                if minutes_since_start < 5:
+                    status_icon = "🕐"
+                    status_text = "Ожидает создания ветки"
+                else:
+                    status_icon = "❓"
+                    status_text = "Ветка не найдена"
+            elif last_commit:
+                # Есть ветка и информация о коммите
+                mins_ago = last_commit["minutes_ago"]
+
+                if mins_ago < 5:
+                    status_icon = "🟢"
+                    status_text = f"Работает (коммит {mins_ago} мин назад)"
+                elif mins_ago < 15:
+                    status_icon = "🔵"
+                    status_text = f"В процессе (коммит {mins_ago} мин назад)"
+                else:
+                    status_icon = "⚠️"
+                    status_text = f"Нет активности {mins_ago} мин"
+            else:
+                # Есть ветка, но не удалось получить коммит
+                status_icon = "🔵"
+                status_text = "Проверяю..."
+
+            type_emoji = "📖" if task["type"] == "glossary" else "📝"
+            type_name = "Глоссарий" if task["type"] == "glossary" else "Тесты"
+
+            message += f"{status_icon} {type_emoji} *{type_name}* {task['book']} Module {task['module']}\n"
+            message += f"⏱ Начато: {started_time} | {status_text}\n"
+
+            # Показываем ветку если есть
+            if branch:
+                branch_short = branch.replace("claude/", "")[:30]
+                message += f"🌿 `{branch_short}`\n"
+
+            # Показываем последний коммит если есть
+            if last_commit and task.get("status") != "ready_to_merge":
+                commit_msg = last_commit["message"].split("\n")[0][:40]  # первая строка, до 40 символов
+                message += f"💬 _{commit_msg}_\n"
+
+            message += "\n"
+
+        message += "━━━━━━━━━━━━━━━\n"
+    else:
+        message += "📋 *Активные задачи:* нет\n"
+        message += "━━━━━━━━━━━━━━━\n"
+
+    # Готовы к мержу
+    message += f"✅ *Готовы к мёржу:* {len(ready_to_merge)}\n"
+
+    # Проверяем готовые модули
+    modules_ready = {}
+    for task in ready_to_merge:
+        key = f"{task['book']}_{task['module']}"
+        if key not in modules_ready:
+            modules_ready[key] = []
+        modules_ready[key].append(task["type"])
+
+    for key, types in modules_ready.items():
+        if len(types) == 2:  # glossary + tests
+            book, module = key.rsplit("_", 1)
+            message += f"🎉 _{book} Module {module} — полностью готов!_\n"
+
+    message += "━━━━━━━━━━━━━━━\n"
+    message += f"📁 *Завершено сегодня:* {len(completed_today)}"
+
+    # Кнопки
+    keyboard = [
+        [InlineKeyboardButton("🔄 Обновить", callback_data="refresh_status")],
+        [InlineKeyboardButton("🗑 Очистить всё", callback_data="clear_all_tasks")],
+        [InlineKeyboardButton("◀️ Главное меню", callback_data="back_main")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="Markdown")
+
+
+async def show_main_menu_message(update: Update):
+    """Главное меню (для текстовых команд)"""
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 CFA", callback_data="project_cfa"),
+            InlineKeyboardButton("🇪🇸 Spanish (скоро)", callback_data="project_spanish"),
+        ],
+        [
+            InlineKeyboardButton("📈 Status", callback_data="status"),
+            InlineKeyboardButton("⏸️ Пауза", callback_data="pause"),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🤖 *AUTOMATION BOT*\n\nВыберите проект:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def show_merge_menu_message(update: Update):
+    """Показать меню merge (для текстовых команд)"""
+    ready_tasks = task_storage.get_ready_to_merge_tasks()
+
+    if not ready_tasks:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🔀 *Merge модуль*\n\n"
+            "Нет задач готовых к merge.\n\n"
+            "_Дождись завершения glossary и tests для модуля._",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Группируем по модулям
+    modules = {}
+    for task in ready_tasks:
+        key = f"{task['book']}_{task['module']}"
+        if key not in modules:
+            modules[key] = {"book": task["book"], "module": task["module"], "tasks": []}
+        modules[key]["tasks"].append(task)
+
+    # Показываем только модули где готовы ОБА (glossary + tests)
+    complete_modules = {k: v for k, v in modules.items() if len(v["tasks"]) == 2}
+
+    if not complete_modules:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🔀 *Merge модуль*\n\n"
+            "Нет полностью готовых модулей.\n\n"
+            "_Нужны ОБА: glossary ✅ и tests ✅_",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # Создаём кнопки для каждого готового модуля
+    keyboard = []
+    for key, data in complete_modules.items():
+        keyboard.append([InlineKeyboardButton(
+            f"🔀 {data['book']} Module {data['module']}",
+            callback_data=f"do_merge_{key}"
+        )])
+
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    message = "🔀 *Merge модуль*\n\n"
+    message += "Готовы к merge:\n\n"
+    for key, data in complete_modules.items():
+        message += f"📚 *{data['book']} Module {data['module']}*\n"
+        for task in data["tasks"]:
+            type_emoji = "📖" if task["type"] == "glossary" else "📝"
+            message += f"  {type_emoji} {task['type']} ✅\n"
+        message += "\n"
+
+    await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="Markdown")
 
 
 async def do_merge(query):
