@@ -185,14 +185,6 @@ def check_branch_completed(branch_name):
                 print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (found '{pattern}' in last commit)")
                 return True
 
-        # Проверка checkpoint 2 или выше
-        checkpoint_match = re.search(r'checkpoint\s+(\d+)', message)
-        if checkpoint_match:
-            checkpoint_num = int(checkpoint_match.group(1))
-            if checkpoint_num >= 2:
-                print(f"[GitHubMonitor] Branch {branch_name} is COMPLETED (checkpoint {checkpoint_num} >= 2)")
-                return True
-
         return False
 
     except Exception as e:

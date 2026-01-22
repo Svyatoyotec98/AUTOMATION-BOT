@@ -17,11 +17,11 @@ async def background_monitor_loop(bot, admin_id):
         bot: экземпляр Telegram Bot
         admin_id: Telegram ID администратора для уведомлений
     """
-    print("[BackgroundMonitor] Started background monitoring (check every 2 minutes)")
+    print("[BackgroundMonitor] Started background monitoring (check every 10 seconds)")
 
     while True:
         try:
-            await asyncio.sleep(120)  # Проверка каждые 2 минуты
+            await asyncio.sleep(10)  # Проверка каждые 10 секунд
 
             # Получаем все ветки Claude с GitHub
             try:
@@ -87,10 +87,22 @@ async def background_monitor_loop(bot, admin_id):
                                 await send_module_ready_notification(bot, admin_id, task)
                         continue
 
-                    # Проверяем активность по последнему коммиту
+                    # Проверяем активность
                     last_commit = github_monitor.get_last_commit_info(branch)
 
                     if last_commit:
+                        # Сначала проверяем — сколько времени прошло с привязки ветки
+                        branch_linked_at = task.get("branch_linked_at")
+
+                        if branch_linked_at:
+                            from datetime import datetime
+                            linked_time = datetime.strptime(branch_linked_at, "%Y-%m-%d %H:%M:%S")
+                            mins_since_linked = int((datetime.now() - linked_time).total_seconds() / 60)
+
+                            # Если ветка привязана менее 20 минут назад — не считаем зависшей
+                            if mins_since_linked < 20:
+                                continue
+
                         mins_ago = last_commit["minutes_ago"]
 
                         # Если > 15 минут без коммитов — предупреждаем (один раз)

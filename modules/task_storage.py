@@ -89,6 +89,7 @@ def update_task_branch(task_id, branch):
     for task in data["active_tasks"]:
         if task["task_id"] == task_id:
             task["branch"] = branch
+            task["branch_linked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _save_tasks(data)
             print(f"[TaskStorage] Updated task {task_id} branch to {branch}")
             return True
