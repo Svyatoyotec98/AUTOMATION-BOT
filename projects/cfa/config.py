@@ -17,41 +17,41 @@ BOOKS = {
     "fsa": {
         "name": "Financial Statement Analysis",
         "folder": "book3_fsa",
-        "modules": 10,
+        "modules": 12,
     },
     "cf": {
-        "name": "Corporate Finance",
+        "name": "Corporate Issuers",
         "folder": "book4_cf",
         "modules": 8,
     },
     "equity": {
         "name": "Equity Investments",
         "folder": "book5_equity",
-        "modules": 9,
+        "modules": 8,
     },
     "fi": {
         "name": "Fixed Income",
         "folder": "book6_fi",
-        "modules": 12,
+        "modules": 19,
     },
     "der": {
         "name": "Derivatives",
         "folder": "book7_derivatives",
-        "modules": 8,
+        "modules": 10,
     },
     "alt": {
         "name": "Alternative Investments",
         "folder": "book8_alt",
-        "modules": 6,
+        "modules": 7,
     },
     "pm": {
         "name": "Portfolio Management",
         "folder": "book9_pm",
-        "modules": 10,
+        "modules": 6,
     },
     "ethics": {
         "name": "Ethics",
         "folder": "book10_ethics",
-        "modules": 6,
+        "modules": 5,
     },
 }
