@@ -62,6 +62,8 @@ async def background_monitor_loop(bot, admin_id):
                     if found_branch:
                         task_storage.update_task_branch(task_id, found_branch)
                         branch = found_branch
+                        task["branch"] = found_branch  # Обновляем локальный объект
+                        task["branch_linked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Обновляем локальный объект
                         await send_branch_linked_notification(bot, admin_id, task, branch)
 
                 # Если ветки всё еще нет — пропускаем
