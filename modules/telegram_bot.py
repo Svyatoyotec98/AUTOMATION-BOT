@@ -18,6 +18,14 @@ STATE_CFA_MODULES = "cfa_modules"
 STATE_CFA_CONFIRM = "cfa_confirm"
 STATE_STATUS = "status"
 STATE_MERGE = "merge"
+STATE_CLEAR = "clear"
+
+
+def ensure_user_state(user_id):
+    """Убедиться что user_state существует для пользователя"""
+    if user_id not in user_state:
+        user_state[user_id] = {}
+    return user_state[user_id]
 
 
 def create_bot():
@@ -130,7 +138,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         if text == "🔄 Обновить":
             await refresh_and_show_status(update, user_id)
         elif text == "🗑 Очистить":
-            await clear_all_tasks(update, user_id)
+            await clear_tasks_menu(update, user_id)
         elif text == "◀️ Назад":
             await show_main_menu(update, user_id)
 
@@ -141,6 +149,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             # Проверяем формат "Book Module N"
             await handle_merge_selection(update, user_id, text)
+
+    # === ОЧИСТКА ===
+    elif current_state == STATE_CLEAR:
+        if text == "🧹 Очистить задачи":
+            await clear_tasks_only(update, user_id)
+        elif text == "💣 Очистить ВСЁ (ветки + задачи)":
+            await clear_everything(update, user_id)
+        elif text == "◀️ Назад":
+            await show_status(update, user_id)
 
 
 async def show_main_menu(update: Update, user_id: int):
@@ -161,6 +178,7 @@ async def show_main_menu(update: Update, user_id: int):
 
 async def show_cfa_menu(update: Update, user_id: int):
     """CFA меню"""
+    ensure_user_state(user_id)
     user_state[user_id]["state"] = STATE_CFA
 
     keyboard = [
@@ -178,6 +196,7 @@ async def show_cfa_menu(update: Update, user_id: int):
 
 async def show_books_menu(update: Update, user_id: int):
     """Меню выбора книги"""
+    ensure_user_state(user_id)
     user_state[user_id]["state"] = STATE_CFA_BOOKS
 
     keyboard = [
@@ -197,6 +216,7 @@ async def show_books_menu(update: Update, user_id: int):
 
 async def show_modules_menu(update: Update, user_id: int, book_code: str):
     """Меню выбора модуля"""
+    ensure_user_state(user_id)
     book = BOOKS.get(book_code, {})
     book_name = book.get("name", book_code)
     total_modules = book.get("modules", 10)
@@ -344,6 +364,7 @@ async def show_status(update: Update, user_id: int):
     """Показать статус с индикаторами активности"""
     from datetime import datetime
 
+    ensure_user_state(user_id)
     user_state[user_id]["state"] = STATE_STATUS
 
     active_tasks = task_storage.get_active_tasks()
@@ -467,8 +488,60 @@ async def clear_all_tasks(update: Update, user_id: int):
     await show_status(update, user_id)
 
 
+async def clear_tasks_menu(update: Update, user_id: int):
+    """Меню очистки — выбор режима"""
+    if user_id not in user_state:
+        user_state[user_id] = {}
+    user_state[user_id]["state"] = STATE_CLEAR
+
+    keyboard = [
+        [KeyboardButton("🧹 Очистить задачи")],
+        [KeyboardButton("💣 Очистить ВСЁ (ветки + задачи)")],
+        [KeyboardButton("◀️ Назад")],
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await update.message.reply_text(
+        "🗑 *Выберите режим очистки:*\n\n"
+        "🧹 *Очистить задачи* — только tasks.json\n"
+        "💣 *Очистить ВСЁ* — удалить ВСЕ ветки claude/* на GitHub + tasks.json",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def clear_tasks_only(update: Update, user_id: int):
+    """Очистить только tasks.json"""
+    task_storage.clear_all_tasks()
+    await update.message.reply_text("🧹 Задачи очищены!")
+    await show_status(update, user_id)
+
+
+async def clear_everything(update: Update, user_id: int):
+    """Очистить ВСЁ — ветки на GitHub + tasks.json"""
+    from modules.git_operations import delete_all_claude_branches
+
+    await update.message.reply_text("💣 Удаляю все ветки claude/* на GitHub...")
+
+    result = delete_all_claude_branches()
+
+    if result["deleted"]:
+        deleted_list = "\n".join([f"• {b}" for b in result["deleted"]])
+        await update.message.reply_text(f"✅ Удалено веток: {len(result['deleted'])}\n\n{deleted_list}")
+
+    if result["errors"]:
+        await update.message.reply_text(f"⚠️ Ошибки: {len(result['errors'])}")
+
+    # Очистить tasks.json
+    task_storage.clear_all_tasks()
+
+    await update.message.reply_text("🧹 Задачи очищены!")
+    await show_status(update, user_id)
+
+
 async def show_merge_module_menu(update: Update, user_id: int):
     """Показать модули готовые к merge"""
+    ensure_user_state(user_id)
     ready_tasks = task_storage.get_ready_to_merge_tasks()
 
     if not ready_tasks:

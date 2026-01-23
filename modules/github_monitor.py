@@ -43,27 +43,24 @@ def get_claude_branches():
 
 def get_branch_commits(branch_name):
     """
-    Получить список коммитов для ветки
-
-    Args:
-        branch_name: название ветки
-
-    Returns:
-        list: список коммитов (dict с полями: sha, message, date)
+    Получить список коммитов ТОЛЬКО для этой ветки (без истории main).
+    Использует compare API для получения разницы между main и веткой.
     """
     try:
         repo = _get_repo()
-        commits = repo.get_commits(sha=branch_name)
+
+        # Сравниваем main с веткой — получаем только коммиты ветки
+        comparison = repo.compare("main", branch_name)
 
         commit_list = []
-        for commit in commits:
+        for commit in comparison.commits:
             commit_list.append({
                 "sha": commit.sha,
                 "message": commit.commit.message,
                 "date": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S")
             })
 
-        print(f"[GitHubMonitor] Found {len(commit_list)} commits in branch {branch_name}")
+        print(f"[GitHubMonitor] Found {len(commit_list)} branch-specific commits in {branch_name}")
         return commit_list
 
     except Exception as e:

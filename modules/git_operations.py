@@ -134,13 +134,54 @@ def merge_module_branches(glossary_branch, tests_branch, repo_path=REPO_PATH):
             return {"success": False, "message": f"Push failed: {push_result.stderr}"}
         results.append(f"✅ Pushed to main")
 
-        # 6. Удалить ветки
+        # 6. Удалить ветки на GitHub
         print("[Git] Deleting branches...")
-        git_delete_branch_remote(glossary_branch)
-        git_delete_branch_remote(tests_branch)
+        glossary_branch_clean = glossary_branch.replace("origin/", "")
+        tests_branch_clean = tests_branch.replace("origin/", "")
+        git_delete_branch_remote(glossary_branch_clean)
+        git_delete_branch_remote(tests_branch_clean)
+
+        # 7. Очистить локальный кэш удалённых веток
+        print("[Git] Pruning local cache...")
+        run_git_command(["fetch", "--prune"])
+
         results.append(f"✅ Branches deleted")
 
         return {"success": True, "message": "\n".join(results)}
 
     except Exception as e:
         return {"success": False, "message": f"Error: {str(e)}"}
+
+def delete_all_claude_branches():
+    """
+    Удалить ВСЕ ветки claude/* на GitHub и очистить локальный кэш.
+
+    Returns:
+        dict: {"success": bool, "deleted": list, "errors": list}
+    """
+    deleted = []
+    errors = []
+
+    try:
+        # Получить список веток
+        git_fetch()
+        branches = get_claude_branches()
+
+        # Удалить каждую ветку
+        for branch in branches:
+            branch_clean = branch.replace("origin/", "")
+            result = git_delete_branch_remote(branch_clean)
+            if result.returncode == 0:
+                deleted.append(branch_clean)
+                print(f"[Git] Deleted branch: {branch_clean}")
+            else:
+                errors.append({"branch": branch_clean, "error": result.stderr})
+                print(f"[Git] Failed to delete {branch_clean}: {result.stderr}")
+
+        # Очистить локальный кэш
+        run_git_command(["fetch", "--prune"])
+
+        return {"success": len(errors) == 0, "deleted": deleted, "errors": errors}
+
+    except Exception as e:
+        return {"success": False, "deleted": deleted, "errors": [str(e)]}
